@@ -7,7 +7,7 @@ from transformers import Qwen2Config, Qwen2ForCausalLM
 import llaisys
 
 
-def test_tiny_qwen2():
+def run_tiny_qwen2(dtype):
     torch.manual_seed(7)
     config = Qwen2Config(
         vocab_size=32,
@@ -23,9 +23,9 @@ def test_tiny_qwen2():
         bos_token_id=30,
         eos_token_id=31,
         tie_word_embeddings=False,
-        torch_dtype="float32",
+        torch_dtype=dtype,
     )
-    reference = Qwen2ForCausalLM(config).eval()
+    reference = Qwen2ForCausalLM(config).to(dtype=dtype).eval()
     prompt = [1, 4, 2, 8]
 
     with tempfile.TemporaryDirectory() as directory:
@@ -45,6 +45,11 @@ def test_tiny_qwen2():
         # A second generation verifies that resetCache discards the prior request.
         repeated = candidate.generate(prompt, max_new_tokens=3, top_k=1)
         assert repeated == expected
+
+
+def test_tiny_qwen2():
+    run_tiny_qwen2(torch.float32)
+    run_tiny_qwen2(torch.bfloat16)
 
 
 if __name__ == "__main__":
