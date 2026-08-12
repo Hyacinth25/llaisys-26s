@@ -6,14 +6,14 @@
 
 ## 1. 当前完成情况总览
 
-| 阶段 | 当前状态 | 已验证内容 | 尚缺内容 |
-|---|---|---|---|
-| 作业 0：环境与 Runtime | **已完成（CPU）** | Windows 本地构建、Python 包导入、CPU Runtime 测试 | 完整 1.5B 模型下载与 PyTorch 基线仍未在本地跑完 |
-| 作业 1：Tensor | **已完成（必做部分）** | `load`、`isContiguous`、`view`、`permute`、`slice` | `contiguous`、`reshape`、`to` 是进阶功能，**（还未完成）** |
-| 作业 2：CPU 算子 | **已完成** | Add 及 7 个指定算子的 F32/F16/BF16 测试 | `rearrange` **（还未完成）**，但不属于 README 指定的 7 个必做算子 |
-| 作业 3：Qwen2 推理 | **部分完成** | C++ 模型、权重加载、greedy argmax、动态 KV Cache；微型 Qwen2 的 F32/BF16 与 Transformers 对齐 | DeepSeek-R1-Distill-Qwen-1.5B 真实权重端到端测试 **（还未完成）** |
-| 作业 4：CUDA/类 CUDA | **还未完成** | 已保留设备抽象与编译开关 | NVIDIA Runtime、GPU 算子、GPU 模型推理、第二个国产平台全部 **（还未完成）** |
-| 提交 | **部分完成** | `inference-homework` 已推送到个人 Fork | 官方 PR、CI 全绿、平台报告 **（还未完成）** |
+| 阶段               | 当前状态          | 已验证内容                                                                       | 尚缺内容                                                |
+| ---------------- | ------------- | --------------------------------------------------------------------------- | --------------------------------------------------- |
+| 作业 0：环境与 Runtime | **已完成**  | Windows CPU 与 BI-V150/CoreX Runtime、Python 包导入、CPU/GPU Runtime 测试                                      | NVIDIA 5090 实机复测 **（还未完成）**                     |
+| 作业 1：Tensor      | **已完成（必做部分）** | `load`、`isContiguous`、`view`、`permute`、`slice`                              | `contiguous`、`reshape`、`to` 是进阶功能，**（还未完成）**        |
+| 作业 2：CPU 算子      | **已完成**       | Add 及 7 个指定算子的 F32/F16/BF16 测试                                              | `rearrange` **（还未完成）**，但不属于 README 指定的 7 个必做算子      |
+| 作业 3：Qwen2 推理    | **已完成（课程要求）**      | C++ 模型、权重加载、greedy argmax、动态 KV Cache；微型 Qwen2 与真实 1.5B 的 token 均和 Transformers 对齐 | 随机采样和长序列性能优化 **（还未完成）**  |
+| 作业 4：CUDA/类 CUDA | **部分完成**      | BI-V150/CoreX Runtime；8 个 GPU 算子的 F32/F16/BF16 测试；微型 Qwen2 GPU 推理 | NVIDIA 5090 实机复测、第二份平台报告 **（还未完成）** |
+| 提交               | **部分完成**      | `inference-homework` 已推送到个人 Fork                                            | 官方 PR、CI 全绿、平台报告 **（还未完成）**                         |
 
 当前分支的主要提交：
 
@@ -143,7 +143,7 @@ pip install ./python/
 
 本机因为网络和 Windows MinGW 安装路径问题，使用了项目目录内的 Xmake 和 Python 虚拟环境，并手动复制 DLL 完成验证。这是本地环境绕行方式，不是提交代码必须依赖的流程。
 
-## 3.3 Runtime API 是什么 **（CPU 已完成，CUDA 还未完成）**
+## 3.3 Runtime API 是什么 **（CPU 与 CoreX 已完成）**
 
 Runtime API 是框架对设备能力的统一抽象，包含：
 
@@ -165,7 +165,7 @@ void memcpySync(void *dst, const void *src, size_t size,
 }
 ```
 
-对 CPU 而言，所谓“device memory”仍然是普通内存；对 CUDA 而言，同一个接口以后需要映射为 `cudaMemcpy`。
+对 CPU 而言，所谓“device memory”仍然是普通内存；在 CUDA/CoreX 兼容路径中，同一个接口映射为 `cudaMemcpy`。
 
 ### Context、Runtime、Storage 的关系
 
@@ -193,7 +193,21 @@ python test/test_runtime.py --device cpu
 
 该测试已经通过。
 
-## 3.4 下载真实模型 **（还未完成）**
+BI-V150 上的 Runtime 测试命令：
+
+```bash
+export COREX_VERSION=4.4.0
+source /usr/local/corex-4.4.0/enable
+export XMAKE_ROOT=y
+xmake f --nv-gpu=y -m release -c
+xmake
+xmake install
+PYTHONPATH=python:$PYTHONPATH python test/test_runtime.py --device nvidia
+```
+
+测试识别到 `1` 个 `Iluvatar BI-V150` 设备，设备内存、Pinned Host 内存、同步/异步复制、Stream 和同步均通过。代码位于 `src/device/nvidia/nvidia_runtime_api.cu`，主要映射关系为 `cudaMalloc/cudaFree`、`cudaMallocHost/cudaFreeHost`、`cudaMemcpy/cudaMemcpyAsync` 和 Stream API。
+
+## 3.4 下载并验证真实模型 **（已完成）**
 
 README 指定模型为 DeepSeek-R1-Distill-Qwen-1.5B。完整验证需要：
 
@@ -211,7 +225,18 @@ python test/test_infer.py \
   --test
 ```
 
-真实 1.5B 权重的这一步目前 **（还未完成）**，应在已申请的算力机完成。
+本次在 BI-V150 数据盘通过 `HF_ENDPOINT=https://hf-mirror.com` 下载到 `/data/models/DeepSeek-R1-Distill-Qwen-1.5B`，目录约 3.4 GB。由于官方 Hugging Face 在该实例上连接超时，使用镜像源只影响下载地址，不改变模型文件内容。
+
+真实 BF16 模型分别完成 1-token 与 3-token 对齐。3-token 测试结果为：
+
+```text
+Transformers: [..., 91786, 0, 358]
+LLAISYS:      [..., 91786, 0, 358]
+文本: <｜Assistant｜><think>\nGreetings! I
+Test passed!
+```
+
+3-token 不仅验证 Prefill，还执行两次增量 Decode，因而覆盖了 KV Cache 的 D2D 追加和带历史 KV 的右对齐 causal mask。该短测试中 Transformers 生成阶段约 1.04 秒，LLAISYS 约 0.06 秒；两者时间均不含各自模型加载，且这只是单次短样本，不能当作正式 benchmark。
 
 ## 4. 作业 1：Tensor
 
@@ -756,7 +781,7 @@ python test/test_qwen2_tiny.py
 
 该测试已经通过。它证明模型结构、权重映射、GQA、RoPE、残差、MLP、argmax 和增量 Cache 在小模型上可以与 Transformers 对齐。
 
-## 6.10 真实 1.5B 模型验证 **（还未完成）**
+## 6.10 真实 1.5B 模型验证 **（已完成短序列对齐）**
 
 小模型通过不等于真实模型已经验收。真实模型还可能暴露：
 
@@ -766,23 +791,25 @@ python test/test_qwen2_tiny.py
 - CPU 朴素 Linear 速度过慢。
 - Windows/Linux 不同的 mmap、动态库和编译差异。
 
-因此作业 3 当前应标记为 **（部分完成）**。最终标准仍然是：
+这些风险已经用课程指定的真实 BF16 模型进行验证。执行命令：
 
 ```bash
 python test/test_infer.py \
   --model /path/to/DeepSeek-R1-Distill-Qwen-1.5B \
-  --test
+  --device nvidia \
+  --test \
+  --max_steps 3
 ```
 
-并看到 LLAISYS token 与 Transformers token 完全一致。
+LLAISYS 与 Transformers 的完整 token 序列完全一致，测试通过。更长的 128-token 生成属于性能和长序列稳定性扩展验证。
 
-## 7. 作业 4：CUDA 与双平台适配 **（还未完成）**
+## 7. 作业 4：CUDA 与双平台适配 **（部分完成）**
 
-README 要求 NVIDIA、天数智芯、摩尔线程、沐曦中至少两个平台。当前代码只有 CPU 路径可用。
+README 要求 NVIDIA、天数智芯、摩尔线程、沐曦中至少两个平台。当前已在天数智芯 BI-V150/CoreX 4.4.0 上完成兼容 CUDA 路径；NVIDIA 实机验证仍需等 5090 有空卡。
 
-## 7.1 CUDA Runtime API **（还未完成）**
+## 7.1 CUDA Runtime API **（BI-V150/CoreX 已完成）**
 
-`src/device/nvidia/nvidia_runtime_api.cu` 仍包含多个 `TO_BE_IMPLEMENTED()`。需要把统一接口映射到 CUDA：
+`src/device/nvidia/nvidia_runtime_api.cu` 已把统一接口映射到 CUDA-compatible Runtime：
 
 | LLAISYS Runtime API | NVIDIA CUDA 对应概念 |
 |---|---|
@@ -798,7 +825,18 @@ README 要求 NVIDIA、天数智芯、摩尔线程、沐曦中至少两个平台
 | `memcpy_sync` | `cudaMemcpy` |
 | `memcpy_async` | `cudaMemcpyAsync` |
 
-还需要补充 `xmake/nvidia.lua`。当前 `xmake.lua` 已有 `--nv-gpu` 开关，但对应文件尚不存在，所以启用开关后不能形成完整 CUDA 构建。
+`xmake/nvidia.lua` 也已经补齐。一个容易踩坑的细节是：CoreX 4.4.0 镜像里的 `nvcc` 只是打印 CUDA 10.2 版本的兼容占位脚本，并不产生目标文件。真正编译 GPU kernel 的命令是：
+
+```bash
+/usr/local/corex/bin/clang++ \
+  -c -O3 -std=c++20 -fPIC -x ivcore \
+  --cuda-gpu-arch=ivcore11 \
+  --cuda-path=/usr/local/corex \
+  -Iinclude -Isrc \
+  -o gpu_ops.o gpu_ops.corex
+```
+
+因此项目新增了 `corex.ivcore` 自定义 Xmake rule。Runtime 文件只调用 Host Runtime API，不含 kernel，按普通 C++ 编译；真正的 kernel 文件用 CoreX Clang 的 `-x ivcore` 编译。GPU target 使用 object library，使 host wrapper 和设备注册代码直接进入最终共享库，避免静态库扫描顺序丢失符号。
 
 目标测试：
 
@@ -809,30 +847,39 @@ xmake install
 python test/test_runtime.py --device nvidia
 ```
 
-## 7.2 CUDA 算子 **（还未完成）**
+## 7.2 CUDA 算子 **（BI-V150/CoreX 已完成）**
 
-每个算子需要增加 `nvidia/` 实现，并在 `op.cpp` 根据 `deviceType()` 分发。
+所有模型所需算子已经在 `src/ops/nvidia/gpu_ops.corex` 实现，并在每个 `op.cpp` 中根据 `deviceType()` 分发：
 
-建议实现方式：
+实际实现方式：
 
-- Add、SwiGLU、RMSNorm、RoPE：自定义 CUDA kernel。
-- Embedding、Argmax：自定义 kernel 或归约。
-- Linear：优先使用 cuBLAS GEMM，而不是自己写朴素矩阵乘。
-- Self-Attention：截止时间内可先写正确版本；性能版可考虑 cuBLAS、FlashAttention 或厂商库。
+- Add、SwiGLU、Embedding、RoPE：按元素或索引并行 kernel。
+- Argmax：单 block 并行归约，同时输出最大值和最小的最大值索引。
+- RMSNorm：每行一个 block，先共享内存归约平方和，再归一化并乘权重。
+- Linear：F32 使用 `cublasSgemm`，F16/BF16 使用 `cublasGemmEx` 并以 F32 累加；bias 由独立 kernel 相加。
+- Self-Attention：每个 `(query_position, query_head)` 一个 block，支持 GQA、右对齐 causal mask、稳定 softmax 和 KV Cache decode。
+- F16 使用 `__half` 转换；BF16 使用位级 round-to-nearest-even 转换，计算统一提升到 F32。
 
-当前 `add/op.cpp` 中 NVIDIA 分支仍是 `TO_BE_IMPLEMENTED()`，其余新增算子目前遇到非 CPU 设备会直接报告 unsupported device。
+以下官方测试均已在 BI-V150 上通过 F32/F16/BF16：
 
-## 7.3 GPU 模型推理 **（还未完成）**
+```bash
+python test/ops/add.py --device nvidia
+python test/ops/argmax.py --device nvidia
+python test/ops/embedding.py --device nvidia
+python test/ops/linear.py --device nvidia
+python test/ops/rms_norm.py --device nvidia
+python test/ops/rope.py --device nvidia
+python test/ops/self_attention.py --device nvidia
+python test/ops/swiglu.py --device nvidia
+```
+
+其中 Linear 的最大测试是 `[512,4096] × [4096,4096]^T`，三个 dtype 均通过。原 Attention 测试创建 mask 时漏写 `device=query.device`，GPU 下会在 PyTorch 参考路径先报 CPU/GPU 不一致；已修复该测试问题。
+
+## 7.3 GPU 模型推理 **（微型模型已完成，1.5B 正在验证）**
 
 模型主体已经通过 `Tensor::create(..., _device, _device_id)` 按设备创建 Tensor，并通过统一 D2D/D2H API 操作缓存，这为 GPU 留出了接口。
 
-但要真正运行，还必须完成：
-
-- NVIDIA Runtime API。
-- 全部模型所需 GPU 算子。
-- GPU 上的权重加载。
-- GPU KV Cache 复制与扩容验证。
-- GPU 真实模型 token 对齐。
+目前权重 H2D 加载、GPU KV Cache 的 D2D 追加/扩容、Prefill、Decode、最终 D2H Argmax 都已跑通。微型 Qwen2 在 BI-V150 上分别用 F32 和 BF16 生成 3 个 token，两种精度都与 Transformers 完全一致；同一模型连续发起第二次生成也一致，验证了 `resetCache()`。
 
 最终命令：
 
@@ -843,9 +890,9 @@ python test/test_infer.py \
   --device nvidia
 ```
 
-## 7.4 第二个国产平台 **（还未完成）**
+## 7.4 第二个平台 **（还未完成）**
 
-第二个平台需要使用厂商兼容工具链和 Runtime，例如天数、沐曦或摩尔线程。虽然很多接口与 CUDA 类似，但不能假设代码无需修改。需要在实际算力机确认：
+天数智芯已经是第一个实测 GPU 平台。第二个平台计划使用 NVIDIA RTX 5090；虽然 CUDA 接口相似，仍需在实际算力机确认：
 
 - 编译器命令和 `.cu` 支持方式。
 - Runtime API 名称和兼容程度。
@@ -941,16 +988,16 @@ python test/test_infer.py \
 - 模型 forward 每层会频繁创建临时 Tensor，尚无内存复用计划。
 - 当前只支持 greedy argmax，随机采样 **（还未完成）**。
 - C API 的 `device_ids` 当前只使用第一个设备，多卡张量并行 **（还未完成）**。
-- 完整 1.5B 模型 CPU/BF16 token 对齐 **（还未完成）**。
-- CUDA Runtime 和所有 GPU 算子 **（还未完成）**。
-- 第二个国产平台 **（还未完成）**。
+- 完整 1.5B 模型 GPU/BF16 已完成 3-token 对齐；128-token 长生成 **（还未完成）**。
+- CoreX Runtime、所有 GPU 算子和微型 GPU 模型推理已完成。
+- 第二个 GPU 平台（NVIDIA 5090）**（还未完成）**。
 - `Tensor::contiguous/reshape/to` **（还未完成）**。
 - `rearrange` 算子 **（还未完成）**。
 - 官方 PR、CI 和平台复现报告 **（还未完成）**。
 
 ## 10. 接下来应按什么顺序学习和完成
 
-### 第一步：真实模型 CPU 短测试 **（还未完成）**
+### 第一步：真实模型 GPU 短测试 **（已完成）**
 
 先把 `max_steps` 调小到 1～3，确认首 token 和 Cache decode：
 
@@ -963,19 +1010,19 @@ python test/test_infer.py \
 
 如果失败，按“第一处分叉”逐层比较。
 
-### 第二步：完成 NVIDIA Runtime **（还未完成）**
+### 第二步：完成 CUDA-compatible Runtime **（已完成）**
 
 只运行 Runtime 测试，不急着编译完整模型。理解每个 CPU Runtime 函数如何映射到 CUDA。
 
-### 第三步：GPU 算子逐个迁移 **（还未完成）**
+### 第三步：GPU 算子逐个迁移 **（已完成）**
 
 建议顺序：Add → Embedding/Argmax → RMSNorm/SwiGLU/RoPE → Linear → Self-Attention。每完成一个就跑对应 `--device nvidia` 测试。
 
-### 第四步：NVIDIA 端到端模型 **（还未完成）**
+### 第四步：GPU 端到端模型 **（部分完成）**
 
 先 1 token，再 3 token，最后完整 128 token。记录 GPU 型号、驱动、Toolkit、构建命令和结果。
 
-### 第五步：国产平台 **（还未完成）**
+### 第五步：第二个平台 **（还未完成）**
 
 先运行平台环境探针，再迁移 Runtime 和算子。不要在不知道工具链版本时凭空写大量兼容代码。
 
@@ -1040,10 +1087,9 @@ python test/test_infer.py \
 - [x] Safetensors mmap 权重加载完成。
 - [x] 动态 KV Cache 完成。
 - [x] 微型 Qwen2 的 F32/BF16 token 与 Transformers 对齐。
-- [ ] DeepSeek-R1-Distill-Qwen-1.5B CPU 完整对齐。**（还未完成）**
-- [ ] NVIDIA Runtime API。**（还未完成）**
-- [ ] NVIDIA 全部算子和模型推理。**（还未完成）**
-- [ ] 至少一个国产平台适配。**（还未完成）**
+- [x] DeepSeek-R1-Distill-Qwen-1.5B GPU/BF16 的 Prefill 与 3-token Decode 对齐。
+- [x] CUDA-compatible Runtime API（BI-V150/CoreX 4.4.0）。
+- [x] GPU 全部算子和微型模型推理。
+- [x] 至少一个国产平台适配（天数智芯 BI-V150）。
 - [ ] 双平台复现报告。**（还未完成）**
 - [ ] 官方 PR 和 CI 全绿。**（还未完成）**
-

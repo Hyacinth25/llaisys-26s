@@ -1,7 +1,11 @@
 #include "op.hpp"
 
+#include "../../core/llaisys_core.hpp"
 #include "../../utils.hpp"
 #include "cpu/self_attention_cpu.hpp"
+#ifdef ENABLE_NVIDIA_API
+#include "../nvidia/gpu_ops.hpp"
+#endif
 
 namespace llaisys::ops {
 void self_attention(tensor_t attn_val, tensor_t q, tensor_t k, tensor_t v, float scale) {
@@ -32,6 +36,14 @@ void self_attention(tensor_t attn_val, tensor_t q, tensor_t k, tensor_t v, float
                                    attn_val->dtype(), query_length, key_length,
                                    query_heads, key_value_heads, head_dim, scale);
     }
+    llaisys::core::context().setDevice(attn_val->deviceType(), attn_val->deviceId());
+#ifdef ENABLE_NVIDIA_API
+    if (attn_val->deviceType() == LLAISYS_DEVICE_NVIDIA) {
+        return nvidia::self_attention(attn_val->data(), q->data(), k->data(), v->data(),
+                                      attn_val->dtype(), query_length, key_length,
+                                      query_heads, key_value_heads, head_dim, scale);
+    }
+#endif
     EXCEPTION_UNSUPPORTED_DEVICE;
 }
 } // namespace llaisys::ops

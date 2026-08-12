@@ -7,7 +7,7 @@ from transformers import Qwen2Config, Qwen2ForCausalLM
 import llaisys
 
 
-def run_tiny_qwen2(dtype):
+def run_tiny_qwen2(dtype, device=llaisys.DeviceType.CPU):
     torch.manual_seed(7)
     config = Qwen2Config(
         vocab_size=32,
@@ -38,7 +38,7 @@ def run_tiny_qwen2(dtype):
                 do_sample=False,
             )[0].tolist()
 
-        candidate = llaisys.models.Qwen2(model_path, llaisys.DeviceType.CPU)
+        candidate = llaisys.models.Qwen2(model_path, device)
         actual = candidate.generate(prompt, max_new_tokens=3, top_k=1)
         assert actual == expected, f"LLAISYS={actual}, Transformers={expected}"
 
