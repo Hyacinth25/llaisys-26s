@@ -88,3 +88,6 @@ htmlcov/
 Thumbs.db
 ehthumbs.db
 desktop.ini
+
+# Personal study notes (not part of the homework submission)
+/study.md
