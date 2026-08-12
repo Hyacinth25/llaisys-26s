@@ -11,8 +11,14 @@ target("llaisys-device-nvidia")
         sourcekind = "cxx",
     })
     add_cxflags("-fPIC", {force = true})
-    add_includedirs("/usr/local/corex/include")
-    add_linkdirs("/usr/local/corex/lib64", {public = true})
+    if os.isdir("/usr/local/corex") then
+        add_includedirs("/usr/local/corex/include")
+        add_linkdirs("/usr/local/corex/lib64", {public = true})
+    else
+        local cuda_root = os.getenv("CUDA_HOME") or os.getenv("CUDA_PATH") or "/usr/local/cuda"
+        add_includedirs(path.join(cuda_root, "include"))
+        add_linkdirs(path.join(cuda_root, "lib64"), {public = true})
+    end
     add_links("cudart", {public = true})
 
     on_install(function (target) end)
@@ -34,11 +40,19 @@ rule("corex.ivcore")
         end
         batchcmds:show_progress(opt.progress, "${color.build.object}ivcore %s", sourcefile)
         batchcmds:mkdir(path.directory(objectfile))
-        batchcmds:vrunv("/usr/local/corex/bin/clang++", {
-            "-c", "-O3", "-std=c++20", "-fPIC", "-x", "ivcore",
-            "--cuda-gpu-arch=ivcore11", "--cuda-path=/usr/local/corex",
-            "-Iinclude", "-Isrc", "-o", objectfile, sourcefile,
-        })
+        if os.isdir("/usr/local/corex") then
+            batchcmds:vrunv("/usr/local/corex/bin/clang++", {
+                "-c", "-O3", "-std=c++20", "-fPIC", "-x", "ivcore",
+                "--cuda-gpu-arch=ivcore11", "--cuda-path=/usr/local/corex",
+                "-Iinclude", "-Isrc", "-o", objectfile, sourcefile,
+            })
+        else
+            local cuda_root = os.getenv("CUDA_HOME") or os.getenv("CUDA_PATH") or "/usr/local/cuda"
+            batchcmds:vrunv(path.join(cuda_root, "bin", "nvcc"), {
+                "-c", "-O3", "-std=c++20", "-Xcompiler", "-fPIC", "-x", "cu",
+                "-Iinclude", "-Isrc", "-o", objectfile, sourcefile,
+            })
+        end
         batchcmds:add_depfiles(sourcefile)
         batchcmds:set_depmtime(os.mtime(objectfile))
         batchcmds:set_depcache(target:dependfile(objectfile))
@@ -50,7 +64,12 @@ target("llaisys-ops-nvidia")
     add_deps("llaisys-tensor")
     set_languages("cxx20")
     add_files("../src/ops/nvidia/*.corex", {rules = "corex.ivcore"})
-    add_linkdirs("/usr/local/corex/lib64", {public = true})
+    if os.isdir("/usr/local/corex") then
+        add_linkdirs("/usr/local/corex/lib64", {public = true})
+    else
+        local cuda_root = os.getenv("CUDA_HOME") or os.getenv("CUDA_PATH") or "/usr/local/cuda"
+        add_linkdirs(path.join(cuda_root, "lib64"), {public = true})
+    end
     add_links("cudart", "cublas", {public = true})
 
     on_install(function (target) end)

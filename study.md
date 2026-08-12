@@ -838,6 +838,8 @@ README 要求 NVIDIA、天数智芯、摩尔线程、沐曦中至少两个平台
 
 因此项目新增了 `corex.ivcore` 自定义 Xmake rule。Runtime 文件只调用 Host Runtime API，不含 kernel，按普通 C++ 编译；真正的 kernel 文件用 CoreX Clang 的 `-x ivcore` 编译。GPU target 使用 object library，使 host wrapper 和设备注册代码直接进入最终共享库，避免静态库扫描顺序丢失符号。
 
+同一条 rule 会自动检测平台：存在 `/usr/local/corex` 时走上述 CoreX 命令，否则读取 `CUDA_HOME`/`CUDA_PATH`（默认 `/usr/local/cuda`）并使用标准 `nvcc -x cu`。因此 5090 平台可复用相同 kernel 源码，但仍需实际运行全部测试后才能标记为已适配。
+
 目标测试：
 
 ```bash
