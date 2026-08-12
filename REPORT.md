@@ -94,7 +94,3 @@ python test/test_infer.py \
 ```
 
 RTX 4090 上还使用默认 `--max_steps 128` 完成了完整生成测试：模型生成 83 个新 token 后到达 EOS，LLAISYS 与 Transformers 的完整 token 序列一致。
-
-## 4. CI 验证
-
-仓库的 GitHub Actions 会在 Windows 和 Ubuntu 两个平台自动执行构建、安装、Runtime、Tensor、8 个 CPU 算子及推理测试。最终验收以 PR 页面中 Windows、Ubuntu 两项 CI 均显示通过为准。
