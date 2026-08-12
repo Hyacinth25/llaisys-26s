@@ -8,12 +8,12 @@
 
 | 阶段               | 当前状态          | 已验证内容                                                                       | 尚缺内容                                                |
 | ---------------- | ------------- | --------------------------------------------------------------------------- | --------------------------------------------------- |
-| 作业 0：环境与 Runtime | **已完成**  | Windows CPU 与 BI-V150/CoreX Runtime、Python 包导入、CPU/GPU Runtime 测试                                      | NVIDIA 5090 实机复测 **（还未完成）**                     |
+| 作业 0：环境与 Runtime | **已完成**  | Windows CPU、BI-V150/CoreX 与 RTX 4090/CUDA Runtime、Python 包导入、CPU/GPU Runtime 测试                                      | 无课程必做缺项                     |
 | 作业 1：Tensor      | **已完成（必做部分）** | `load`、`isContiguous`、`view`、`permute`、`slice`                              | `contiguous`、`reshape`、`to` 是进阶功能，**（还未完成）**        |
 | 作业 2：CPU 算子      | **已完成**       | Add 及 7 个指定算子的 F32/F16/BF16 测试                                              | `rearrange` **（还未完成）**，但不属于 README 指定的 7 个必做算子      |
 | 作业 3：Qwen2 推理    | **已完成（课程要求）**      | C++ 模型、权重加载、greedy argmax、动态 KV Cache；微型 Qwen2 与真实 1.5B 的 token 均和 Transformers 对齐 | 随机采样和长序列性能优化 **（还未完成）**  |
-| 作业 4：CUDA/类 CUDA | **部分完成**      | BI-V150/CoreX Runtime；8 个 GPU 算子的 F32/F16/BF16 测试；微型 Qwen2 GPU 推理 | NVIDIA 5090 实机复测、第二份平台报告 **（还未完成）** |
-| 提交               | **部分完成**      | `inference-homework` 已推送到个人 Fork                                            | 官方 PR、CI 全绿、平台报告 **（还未完成）**                         |
+| 作业 4：CUDA/类 CUDA | **已完成（课程要求）**      | 天数智芯 BI-V150/CoreX 与 NVIDIA RTX 4090/CUDA 12.8；Runtime、8 个 GPU 算子的 F32/F16/BF16、tiny Qwen2 和真实 1.5B 推理 | 128-token 长序列性能测试属于扩展验证 **（还未完成）** |
+| 提交               | **部分完成**      | `inference-homework` 已推送到个人 Fork；本文包含双平台复现报告                                            | 官方 PR、CI 全绿 **（还未完成）**                         |
 
 当前分支的主要提交：
 
@@ -21,6 +21,8 @@
 - `d5d5a68`：CPU 推理算子。
 - `d7aab6f`：Qwen2 推理与 KV Cache。
 - `ba391df`：微型 Qwen2 的 BF16 回归测试。
+- `3cdf406`：CUDA-compatible Runtime、GPU 算子与 GPU 模型执行路径。
+- `2f4e942`：CoreX 与标准 NVIDIA CUDA 双工具链自动检测。
 
 ## 2. 先理解 LLAISYS 的整体分层
 
@@ -803,11 +805,11 @@ python test/test_infer.py \
 
 LLAISYS 与 Transformers 的完整 token 序列完全一致，测试通过。更长的 128-token 生成属于性能和长序列稳定性扩展验证。
 
-## 7. 作业 4：CUDA 与双平台适配 **（部分完成）**
+## 7. 作业 4：CUDA 与双平台适配 **（已完成课程要求）**
 
-README 要求 NVIDIA、天数智芯、摩尔线程、沐曦中至少两个平台。当前已在天数智芯 BI-V150/CoreX 4.4.0 上完成兼容 CUDA 路径；NVIDIA 实机验证仍需等 5090 有空卡。
+README 要求 NVIDIA、天数智芯、摩尔线程、沐曦中至少两个平台。当前已经在天数智芯 BI-V150/CoreX 4.4.0 与 NVIDIA RTX 4090/CUDA 12.8 上完成实机编译和测试，满足两个平台的要求。这里的第二个平台要求针对厂商/工具链，因此 RTX 4090 可以替代最初计划的 RTX 5090。
 
-## 7.1 CUDA Runtime API **（BI-V150/CoreX 已完成）**
+## 7.1 CUDA Runtime API **（BI-V150/CoreX 与 RTX 4090/CUDA 已完成）**
 
 `src/device/nvidia/nvidia_runtime_api.cu` 已把统一接口映射到 CUDA-compatible Runtime：
 
@@ -838,7 +840,7 @@ README 要求 NVIDIA、天数智芯、摩尔线程、沐曦中至少两个平台
 
 因此项目新增了 `corex.ivcore` 自定义 Xmake rule。Runtime 文件只调用 Host Runtime API，不含 kernel，按普通 C++ 编译；真正的 kernel 文件用 CoreX Clang 的 `-x ivcore` 编译。GPU target 使用 object library，使 host wrapper 和设备注册代码直接进入最终共享库，避免静态库扫描顺序丢失符号。
 
-同一条 rule 会自动检测平台：存在 `/usr/local/corex` 时走上述 CoreX 命令，否则读取 `CUDA_HOME`/`CUDA_PATH`（默认 `/usr/local/cuda`）并使用标准 `nvcc -x cu`。因此 5090 平台可复用相同 kernel 源码，但仍需实际运行全部测试后才能标记为已适配。
+同一条 rule 会自动检测平台：存在 `/usr/local/corex` 时走上述 CoreX 命令，否则读取 `CUDA_HOME`/`CUDA_PATH`（默认 `/usr/local/cuda`）并使用标准 `nvcc -x cu`。RTX 4090 已证明同一份 kernel 源码能够被标准 CUDA 12.8 工具链编译并正确执行。
 
 目标测试：
 
@@ -849,7 +851,7 @@ xmake install
 python test/test_runtime.py --device nvidia
 ```
 
-## 7.2 CUDA 算子 **（BI-V150/CoreX 已完成）**
+## 7.2 CUDA 算子 **（两个平台均已完成）**
 
 所有模型所需算子已经在 `src/ops/nvidia/gpu_ops.corex` 实现，并在每个 `op.cpp` 中根据 `deviceType()` 分发：
 
@@ -862,7 +864,7 @@ python test/test_runtime.py --device nvidia
 - Self-Attention：每个 `(query_position, query_head)` 一个 block，支持 GQA、右对齐 causal mask、稳定 softmax 和 KV Cache decode。
 - F16 使用 `__half` 转换；BF16 使用位级 round-to-nearest-even 转换，计算统一提升到 F32。
 
-以下官方测试均已在 BI-V150 上通过 F32/F16/BF16：
+以下官方测试均已在 BI-V150 和 RTX 4090 上通过 F32/F16/BF16：
 
 ```bash
 python test/ops/add.py --device nvidia
@@ -877,11 +879,11 @@ python test/ops/swiglu.py --device nvidia
 
 其中 Linear 的最大测试是 `[512,4096] × [4096,4096]^T`，三个 dtype 均通过。原 Attention 测试创建 mask 时漏写 `device=query.device`，GPU 下会在 PyTorch 参考路径先报 CPU/GPU 不一致；已修复该测试问题。
 
-## 7.3 GPU 模型推理 **（微型模型已完成，1.5B 正在验证）**
+## 7.3 GPU 模型推理 **（两个平台均已完成 3-token 对齐）**
 
 模型主体已经通过 `Tensor::create(..., _device, _device_id)` 按设备创建 Tensor，并通过统一 D2D/D2H API 操作缓存，这为 GPU 留出了接口。
 
-目前权重 H2D 加载、GPU KV Cache 的 D2D 追加/扩容、Prefill、Decode、最终 D2H Argmax 都已跑通。微型 Qwen2 在 BI-V150 上分别用 F32 和 BF16 生成 3 个 token，两种精度都与 Transformers 完全一致；同一模型连续发起第二次生成也一致，验证了 `resetCache()`。
+目前权重 H2D 加载、GPU KV Cache 的 D2D 追加/扩容、Prefill、Decode、最终 D2H Argmax 都已跑通。微型 Qwen2 在 BI-V150 与 RTX 4090 上分别用 F32 和 BF16 生成 3 个 token，两种精度都与 Transformers 完全一致；同一模型连续发起第二次生成也一致，验证了 `resetCache()`。真实 DeepSeek-R1-Distill-Qwen-1.5B 的 BF16 Prefill 与 3-token Decode 也在两个平台上通过严格 token 对齐。
 
 最终命令：
 
@@ -889,20 +891,68 @@ python test/ops/swiglu.py --device nvidia
 python test/test_infer.py \
   --model /path/to/DeepSeek-R1-Distill-Qwen-1.5B \
   --test \
-  --device nvidia
+  --device nvidia \
+  --max_steps 3
 ```
 
-## 7.4 第二个平台 **（还未完成）**
+## 7.4 双平台实机复现报告 **（已完成）**
 
-天数智芯已经是第一个实测 GPU 平台。第二个平台计划使用 NVIDIA RTX 5090；虽然 CUDA 接口相似，仍需在实际算力机确认：
+### 平台 A：天数智芯 BI-V150
 
-- 编译器命令和 `.cu` 支持方式。
-- Runtime API 名称和兼容程度。
-- BLAS 库及链接参数。
-- device type 枚举与构建 target。
-- 测试结果和已知限制。
+- GPU：天数智芯 BI-V150，32 GB。
+- 软件栈：CoreX 4.4.0，`clang++ -x ivcore --cuda-gpu-arch=ivcore11`。
+- 构建路径：`/usr/local/corex` 自动检测分支。
+- 结果：Runtime、8 个 GPU 算子的 F32/F16/BF16、tiny Qwen2 F32/BF16、真实 1.5B BF16 的 3-token 对齐全部通过。
 
-作业要求的是“至少两个平台实际适配并说明状态”，只写代码但没有平台运行记录通常不足以验收。
+### 平台 B：NVIDIA RTX 4090
+
+- GPU：NVIDIA GeForce RTX 4090，24,564 MiB。
+- 系统：Ubuntu 24.04.1 LTS。
+- 驱动：570.124.06；驱动报告 CUDA 12.8。
+- Toolkit：`/usr/local/cuda-12.8`，`nvcc 12.8`。
+- PyTorch：2.6.0a0（CUDA 12.8），能够识别 RTX 4090。
+- 构建工具：GCC/G++ 13.3.0、Xmake 3.1.0。
+
+镜像最初执行 `nvcc` 会显示 `command not found`，原因不是没有 Toolkit，而是 `/usr/local/cuda-12.8/bin` 没有加入 `PATH`。显式设置环境变量即可：
+
+```bash
+export CUDA_HOME=/usr/local/cuda-12.8
+export PATH=/root/.local/bin:$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}
+
+xmake f -c -m release --nv-gpu=y
+xmake -v
+xmake install
+```
+
+详细构建日志确认 `src/ops/nvidia/gpu_ops.corex` 在 NVIDIA 路径下实际使用：
+
+```bash
+/usr/local/cuda-12.8/bin/nvcc \
+  -c -O3 -std=c++20 -Xcompiler -fPIC -x cu \
+  -Iinclude -Isrc \
+  -o gpu_ops.corex.o gpu_ops.corex
+```
+
+RTX 4090 测试矩阵：
+
+| 测试项 | 精度/范围 | 结果 |
+|---|---|---|
+| CUDA Runtime | H2D、D2D、D2H、设备内存分配释放 | 通过 |
+| Add、Argmax、Embedding | F32/F16/BF16，小/大 shape | 通过 |
+| Linear、RMSNorm、RoPE | F32/F16/BF16，小/大 shape | 通过 |
+| Self-Attention、SwiGLU | F32/F16/BF16，含 GQA/causal mask | 通过 |
+| tiny Qwen2 | F32/BF16，各生成 3 token，并重复请求 | 与 Transformers 完全一致 |
+| DeepSeek-R1-Distill-Qwen-1.5B | BF16，Prefill + 3-token Decode | 与 Transformers 完整 token 序列完全一致 |
+
+真实模型测试使用 prompt `Who are you?`。Transformers 与 LLAISYS 都生成完整 token 序列：
+
+```text
+[151646, 151646, 151644, 15191, 525, 498, 30,
+ 151645, 151648, 198, 91786, 0, 358]
+```
+
+本次单次运行记录中，Transformers 为约 0.54 秒，LLAISYS 为约 0.16 秒。该数据没有预热和多轮统计，只证明测试顺利完成，不能作为严谨性能结论。
 
 ## 8. 测试与调试方法
 
@@ -992,10 +1042,10 @@ python test/test_infer.py \
 - C API 的 `device_ids` 当前只使用第一个设备，多卡张量并行 **（还未完成）**。
 - 完整 1.5B 模型 GPU/BF16 已完成 3-token 对齐；128-token 长生成 **（还未完成）**。
 - CoreX Runtime、所有 GPU 算子和微型 GPU 模型推理已完成。
-- 第二个 GPU 平台（NVIDIA 5090）**（还未完成）**。
+- 两个 GPU 平台已经完成实机验证：天数智芯 BI-V150 与 NVIDIA RTX 4090。
 - `Tensor::contiguous/reshape/to` **（还未完成）**。
 - `rearrange` 算子 **（还未完成）**。
-- 官方 PR、CI 和平台复现报告 **（还未完成）**。
+- 官方 PR 和 CI **（还未完成）**。
 
 ## 10. 接下来应按什么顺序学习和完成
 
@@ -1020,13 +1070,13 @@ python test/test_infer.py \
 
 建议顺序：Add → Embedding/Argmax → RMSNorm/SwiGLU/RoPE → Linear → Self-Attention。每完成一个就跑对应 `--device nvidia` 测试。
 
-### 第四步：GPU 端到端模型 **（部分完成）**
+### 第四步：GPU 端到端模型 **（课程要求已完成）**
 
-先 1 token，再 3 token，最后完整 128 token。记录 GPU 型号、驱动、Toolkit、构建命令和结果。
+1-token/3-token 正确性与 Cache decode 已完成；完整 128-token 长序列仍属于扩展稳定性和性能验证。GPU 型号、驱动、Toolkit、构建命令和结果已经记录在 7.4 节。
 
-### 第五步：第二个平台 **（还未完成）**
+### 第五步：第二个平台 **（已完成）**
 
-先运行平台环境探针，再迁移 Runtime 和算子。不要在不知道工具链版本时凭空写大量兼容代码。
+NVIDIA RTX 4090/CUDA 12.8 已完成 Runtime、GPU 算子、tiny Qwen2 与真实 1.5B 推理复测。
 
 ### 第六步：PR 与报告 **（还未完成）**
 
@@ -1093,5 +1143,5 @@ python test/test_infer.py \
 - [x] CUDA-compatible Runtime API（BI-V150/CoreX 4.4.0）。
 - [x] GPU 全部算子和微型模型推理。
 - [x] 至少一个国产平台适配（天数智芯 BI-V150）。
-- [ ] 双平台复现报告。**（还未完成）**
+- [x] 双平台复现报告（见 7.4 节）。
 - [ ] 官方 PR 和 CI 全绿。**（还未完成）**
